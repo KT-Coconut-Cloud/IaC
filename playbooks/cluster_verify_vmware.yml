@@ -1,0 +1,20 @@
+---
+- name: Verify VMware cluster from a protected controller-side kubeconfig
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    target_environment: vmware
+    k3s_expected_nodes: [k3s-m1, k3s-w1, k3s-w2]
+    k3s_worker_nodes: [k3s-w1, k3s-w2]
+    cluster_verify_kubeconfig: "{{ vmware_kubeconfig_path }}"
+  pre_tasks:
+    - name: Require kubeconfig outside this repository
+      ansible.builtin.assert:
+        that:
+          - cluster_verify_kubeconfig | length > 0
+          - cluster_verify_kubeconfig is file
+        fail_msg: Set VMWARE_KUBECONFIG to the existing protected kubeconfig path; never commit it.
+  roles:
+    - cluster_verify

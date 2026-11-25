@@ -1,0 +1,29 @@
+---
+target_environment: vmware
+target_inventory_hosts:
+  - w1
+  - w2
+os_baseline_expected_hosts:
+  w1: "10.121.0.161"
+  w2: "10.121.0.162"
+k3s_server_url: https://10.121.0.160:6443
+k3s_api_host: 10.121.0.160
+k3s_expected_nodes:
+  - k3s-m1
+  - k3s-w1
+  - k3s-w2
+k3s_worker_nodes:
+  - k3s-w1
+  - k3s-w2
+controller_ssh_hosts:
+  - alias: w1
+    hostname: 10.121.0.161
+    user: root
+    identity_file: /home/admin/.ssh/id_ed25519_ansible
+    expected_fingerprint: REQUIRED_VERIFY_FROM_VM_CONSOLE
+  - alias: w2
+    hostname: 10.121.0.162
+    user: root
+    identity_file: /home/admin/.ssh/id_ed25519_ansible
+    expected_fingerprint: REQUIRED_VERIFY_FROM_VM_CONSOLE
+vmware_kubeconfig_path: "{{ lookup('env', 'VMWARE_KUBECONFIG') }}"

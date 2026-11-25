@@ -1,0 +1,4 @@
+# K3s node network prerequisites managed by Ansible.
+{% for key, value in os_baseline_sysctls.items() %}
+{{ key }} = {{ value }}
+{% endfor %}

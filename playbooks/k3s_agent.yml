@@ -1,0 +1,31 @@
+---
+- name: Install or join agents on VMware w1/w2 or KT Cloud w1/w2 only
+  hosts: k3s_agents
+  gather_facts: true
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require approved worker-only inventory and confirmed pinned release
+      ansible.builtin.assert:
+        that:
+          - target_environment in ['vmware', 'ktcloud']
+          - groups['k3s_agents'] | sort == ['w1', 'w2']
+          - inventory_hostname in ['w1', 'w2']
+          - ansible_host == os_baseline_expected_hosts[inventory_hostname]
+          - k3s_version_confirmed | bool
+        fail_msg: Refusing K3s agent installation because the target or release is not approved.
+    - name: Load encrypted cluster credentials
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/vault.yml"
+      no_log: true
+    - name: Require the environment-specific encrypted token
+      ansible.builtin.assert:
+        that:
+          - vault_k3s_tokens[target_environment] is defined
+          - vault_k3s_tokens[target_environment] | length >= 32
+          - "'REPLACE_' not in vault_k3s_tokens[target_environment]"
+        fail_msg: Set the environment token in the encrypted vault.
+      no_log: true
+  roles:
+    - k3s_agent

@@ -1,0 +1,194 @@
+---
+- name: Require Rocky Linux 8.10 and the expected K3s node name
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Rocky'
+      - ansible_facts.distribution_version == '8.10'
+      - node_hostname is defined
+      - node_hostname is match('^k3s-(m1|w1|w2)$')
+    fail_msg: OS baseline supports only declared Rocky Linux 8.10 K3s nodes.
+
+- name: Require SELinux to be enabled
+  ansible.builtin.assert:
+    that:
+      - ansible_selinux.status | default('unknown') | lower == 'enabled'
+    fail_msg: SELinux is disabled; refusing an automatic relabel/reboot operation.
+
+- name: Persist the Enforcing policy without changing SELinux policy type
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: SELINUX=enforcing
+    backup: true
+
+- name: Set runtime SELinux to Enforcing when currently permissive
+  ansible.builtin.command:
+    argv: [setenforce, "1"]
+  when: ansible_selinux.mode | default('unknown') | lower != 'enforcing'
+  changed_when: true
+
+- name: Verify runtime SELinux mode
+  ansible.builtin.command:
+    argv: [getenforce]
+  register: os_baseline_selinux_mode
+  changed_when: false
+
+- name: Require runtime SELinux Enforcing
+  ansible.builtin.assert:
+    that:
+      - os_baseline_selinux_mode.stdout | trim | lower == 'enforcing'
+    fail_msg: SELinux did not enter Enforcing mode.
+
+- name: Set the environment-specific hostname persistently
+  ansible.builtin.hostname:
+    name: "{{ node_hostname }}"
+
+- name: Install the bounded K3s operating system package set
+  ansible.builtin.dnf:
+    name: "{{ os_baseline_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure chronyd is enabled and running
+  ansible.builtin.systemd_service:
+    name: chronyd
+    state: started
+    enabled: true
+
+- name: Read the configured timezone
+  ansible.builtin.command:
+    argv: [timedatectl, show, --property=Timezone, --value]
+  register: os_baseline_current_timezone
+  changed_when: false
+
+- name: Apply the declared timezone when it differs
+  ansible.builtin.command:
+    argv: [timedatectl, set-timezone, "{{ node_timezone }}"]
+  when: os_baseline_current_timezone.stdout | trim != node_timezone
+  changed_when: true
+
+- name: Wait until chrony reports synchronized time
+  ansible.builtin.command:
+    argv: [chronyc, tracking]
+  register: os_baseline_chrony_tracking
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: os_baseline_chrony_tracking.stdout is search('Leap status\s*:\s*Normal')
+
+- name: Gather service facts before applying the requested firewalld policy
+  ansible.builtin.service_facts:
+
+- name: Stop and disable firewalld on managed K3s nodes
+  ansible.builtin.systemd_service:
+    name: firewalld
+    state: stopped
+    enabled: false
+  when:
+    - os_baseline_disable_firewalld | bool
+    - "'firewalld.service' in ansible_facts.services"
+
+- name: Load required K3s kernel modules now
+  ansible.builtin.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ os_baseline_modules }}"
+
+- name: Persist required K3s kernel modules across reboot
+  ansible.builtin.template:
+    src: k3s-modules-load.conf.j2
+    dest: /etc/modules-load.d/k3s.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Persist K3s network sysctls in a dedicated file
+  ansible.builtin.template:
+    src: k3s-sysctl.conf.j2
+    dest: /etc/sysctl.d/90-k3s.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply K3s sysctl settings
+
+- name: Apply pending K3s sysctl settings before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Read back required K3s sysctl values
+  ansible.builtin.command:
+    argv: [sysctl, -n, "{{ item.key }}"]
+  loop: "{{ os_baseline_sysctls | dict2items }}"
+  register: os_baseline_sysctl_results
+  changed_when: false
+
+- name: Require every K3s sysctl value
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim == item.item.value
+    fail_msg: "Unexpected sysctl value for {{ item.item.key }}."
+  loop: "{{ os_baseline_sysctl_results.results }}"
+
+- name: Read active swap devices before applying the permanent no-swap policy
+  ansible.builtin.command:
+    argv: [swapon, --show, --noheadings, --output=NAME]
+  register: os_baseline_active_swap
+  changed_when: false
+  failed_when: false
+
+- name: Read active systemd swap units
+  ansible.builtin.command:
+    argv: [systemctl, list-units, --type=swap, --state=active, --no-legend, --no-pager]
+  register: os_baseline_active_swap_units
+  changed_when: false
+  failed_when: false
+
+- name: Stop and mask active systemd swap units
+  ansible.builtin.systemd_service:
+    name: "{{ item.split()[0] }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop: "{{ os_baseline_active_swap_units.stdout_lines | default([]) }}"
+  when: os_baseline_disable_swap | bool
+
+- name: Disable current swap without deleting backing files or partitions
+  ansible.builtin.command:
+    argv: [swapoff, -a]
+  when:
+    - os_baseline_disable_swap | bool
+    - os_baseline_active_swap.stdout | trim | length > 0
+  changed_when: true
+
+- name: Comment active swap entries in fstab and keep a backup
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([ \t]*[^#\s][^\s]*\s+[^ \t]+\s+swap\s+[^ \t]+(?:\s+.*)?)$'
+    replace: '# disabled for K3s by Ansible: \1'
+    backup: true
+  when: os_baseline_disable_swap | bool
+
+- name: Reload systemd after swap unit and fstab changes
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: os_baseline_disable_swap | bool
+
+- name: Require no swap to remain active
+  ansible.builtin.command:
+    argv: [swapon, --show, --noheadings, --output=NAME]
+  register: os_baseline_swap_after
+  changed_when: false
+  when: os_baseline_disable_swap | bool
+
+- name: Verify the no-swap policy
+  ansible.builtin.assert:
+    that:
+      - os_baseline_swap_after.stdout | trim | length == 0
+  when: os_baseline_disable_swap | bool
+
+- name: Install login-time Bash completion with runtime availability checks
+  ansible.builtin.template:
+    src: k3s-completion.sh.j2
+    dest: /etc/profile.d/k3s-completion.sh
+    owner: root
+    group: root
+    mode: "0644"

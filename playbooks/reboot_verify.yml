@@ -1,0 +1,37 @@
+---
+- name: Require an explicit approval flag before reboot recovery checks
+  hosts: k3s_cluster
+  gather_facts: false
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require explicit reboot authorization and the exact environment allowlist
+      ansible.builtin.assert:
+        that:
+          - reboot_recovery_authorized | default(false) | bool
+          - groups['k3s_cluster'] | sort == target_inventory_hosts | sort
+          - inventory_hostname in target_inventory_hosts
+          - ansible_host == os_baseline_expected_hosts[inventory_hostname]
+        fail_msg: Set reboot_recovery_authorized=true only after approving this exact environment and inventory.
+  tasks:
+    - name: Reboot one approved node and wait for SSH recovery
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+        connect_timeout: 10
+        post_reboot_delay: 10
+
+    - name: Require hostname, SELinux, and K3s service recovery
+      ansible.builtin.shell: |
+        set -eu
+        test "$(hostnamectl --static)" = "{{ node_hostname }}"
+        test "$(getenforce)" = Enforcing
+        systemctl is-active "{{ k3s_service_name }}"
+        test "$(swapon --show --noheadings --output=NAME | wc -l)" -eq 0
+      args:
+        executable: /bin/bash
+      register: reboot_recovery_check
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: reboot_recovery_check.rc == 0

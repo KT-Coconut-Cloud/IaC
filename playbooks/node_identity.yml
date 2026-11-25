@@ -1,0 +1,14 @@
+---
+- name: Inspect and repair duplicated identities in the selected cluster inventory
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Refuse an inventory outside the exact allowlist
+      ansible.builtin.assert:
+        that:
+          - groups['k3s_cluster'] | sort == target_inventory_hosts | sort
+          - inventory_hostname in target_inventory_hosts
+  roles:
+    - node_identity
