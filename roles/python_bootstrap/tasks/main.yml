@@ -1,0 +1,31 @@
+---
+- name: Require Rocky Linux 8.10 before any package bootstrap
+  ansible.builtin.raw: |
+    test -r /etc/rocky-release &&
+    grep -q '^Rocky Linux release 8\.10' /etc/rocky-release
+  register: python_bootstrap_os_check
+  changed_when: false
+  failed_when: python_bootstrap_os_check.rc != 0
+
+- name: Install Python 3.6 bootstrap package only if /usr/bin/python3 is absent
+  ansible.builtin.raw: |
+    if [ ! -x /usr/bin/python3 ]; then
+      dnf install -y python3
+    fi
+  register: python_bootstrap_python3
+  changed_when: "'Installed:' in python_bootstrap_python3.stdout or 'Installing:' in python_bootstrap_python3.stdout"
+
+- name: Install the Rocky 8 Python 3.9 package stream when required
+  ansible.builtin.raw: |
+    if [ ! -x {{ python_bootstrap_interpreter }} ]; then
+      dnf install -y python39
+    fi
+  register: python_bootstrap_python39
+  changed_when: "'Installed:' in python_bootstrap_python39.stdout or 'Installing:' in python_bootstrap_python39.stdout"
+
+- name: Verify the exact Python version without changing the system default
+  ansible.builtin.raw: |
+    {{ python_bootstrap_interpreter }} -c 'import sys; print(".".join(map(str, sys.version_info[:3])))'
+  register: python_bootstrap_version_check
+  changed_when: false
+  failed_when: python_bootstrap_version_check.stdout | trim != python_bootstrap_version

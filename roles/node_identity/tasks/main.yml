@@ -1,0 +1,153 @@
+---
+- name: Read the local machine identifier
+  ansible.builtin.command:
+    argv: [cat, /etc/machine-id]
+  register: node_identity_machine_id_before
+  changed_when: false
+
+- name: Calculate machine identifiers for every host in this environment
+  ansible.builtin.set_fact:
+    node_identity_peer_machine_ids: >-
+      {{ groups['k3s_cluster'] | map('extract', hostvars, 'ansible_machine_id') | list }}
+    node_identity_machine_id_duplicate: >-
+      {{ (groups['k3s_cluster'] | map('extract', hostvars, 'ansible_machine_id') | select('equalto', ansible_machine_id) | list | length) > 1 }}
+
+- name: Refuse duplicate machine IDs if automatic repair was disabled
+  ansible.builtin.assert:
+    that:
+      - not (node_identity_machine_id_duplicate | bool) or node_identity_regenerate_duplicates | bool
+    fail_msg: Duplicate machine-id detected; explicit repair is disabled.
+
+- name: Remove only the duplicated machine-id files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/machine-id
+    - /var/lib/dbus/machine-id
+  when: node_identity_machine_id_duplicate | bool
+
+- name: Generate a unique systemd machine identifier
+  ansible.builtin.command:
+    argv: [systemd-machine-id-setup]
+  when: node_identity_machine_id_duplicate | bool
+  register: node_identity_machine_id_regenerated
+  changed_when: true
+
+- name: Record the current public host key for each supported algorithm
+  ansible.builtin.set_fact:
+    node_identity_duplicate_host_key_types: "{{ node_identity_duplicate_host_key_types | default([]) + ([item] if node_identity_current_host_key in node_identity_peer_host_keys else []) }}"
+  vars:
+    node_identity_current_host_key: "{{ vars['ansible_ssh_host_key_' ~ item ~ '_public'] | default('') }}"
+    node_identity_peer_host_keys: >-
+      {{ groups['k3s_cluster'] | difference([inventory_hostname]) |
+         map('extract', hostvars, 'ansible_ssh_host_key_' ~ item ~ '_public') |
+         select('defined') | list }}
+  loop: [ed25519, ecdsa, rsa]
+
+- name: Require host key facts for strict SSH trust
+  ansible.builtin.assert:
+    that:
+      - ansible_ssh_host_key_ed25519_public is defined
+      - ansible_ssh_host_key_ed25519_public | length > 0
+    fail_msg: Could not read the Ed25519 SSH host key fact; refusing identity validation.
+
+- name: Refuse duplicate host keys if automatic repair was disabled
+  ansible.builtin.assert:
+    that:
+      - node_identity_duplicate_host_key_types | default([]) | length == 0 or node_identity_regenerate_duplicates | bool
+    fail_msg: Duplicate SSH host keys detected; explicit repair is disabled.
+
+- name: Find existing SSH host key files only on a host with a detected duplicate
+  ansible.builtin.find:
+    paths: /etc/ssh
+    patterns:
+      - ssh_host_*_key
+      - ssh_host_*_key.pub
+    file_type: file
+  register: node_identity_old_host_key_files
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Remove cloned SSH host keys only when a duplicate was detected
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ node_identity_old_host_key_files.files | default([]) }}"
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Generate replacement SSH host keys
+  ansible.builtin.command:
+    argv: [ssh-keygen, -A]
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+  changed_when: true
+
+- name: Read replacement public host keys over the still authenticated SSH channel
+  ansible.builtin.find:
+    paths: /etc/ssh
+    patterns: ssh_host_*_key.pub
+    file_type: file
+  register: node_identity_new_host_key_files
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Read each replacement public key
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ node_identity_new_host_key_files.files | default([]) }}"
+  register: node_identity_new_host_keys
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Remove stale trust for the affected host before adding its authenticated replacement keys
+  ansible.builtin.known_hosts:
+    path: "{{ controller_ssh_known_hosts_path | default('/home/admin/.ssh/known_hosts') }}"
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ inventory_hostname }}"
+    - "{{ ansible_host }}"
+  delegate_to: localhost
+  become: false
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Save replacement host keys read over the authenticated SSH channel
+  ansible.builtin.known_hosts:
+    path: "{{ controller_ssh_known_hosts_path | default('/home/admin/.ssh/known_hosts') }}"
+    name: "{{ inventory_hostname }},{{ ansible_host }}"
+    key: "{{ inventory_hostname }},{{ ansible_host }} {{ (item.content | b64decode).split()[0] }} {{ (item.content | b64decode).split()[1] }}"
+    hash_host: true
+    state: present
+  loop: "{{ node_identity_new_host_keys.results | default([]) }}"
+  delegate_to: localhost
+  become: false
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Restart SSH only after duplicate host keys have been replaced and trusted
+  ansible.builtin.systemd_service:
+    name: sshd
+    state: restarted
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Reconnect using the updated strict known_hosts entry
+  ansible.builtin.meta: reset_connection
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Wait for the node after SSH host key regeneration
+  ansible.builtin.wait_for_connection:
+    connect_timeout: 10
+    sleep: 3
+    timeout: 90
+  when: node_identity_duplicate_host_key_types | default([]) | length > 0
+
+- name: Refresh identity facts after any targeted repair
+  ansible.builtin.setup:
+    gather_subset:
+      - min
+      - selinux
+      - ssh_host_pub_keys
+
+- name: Require unique machine IDs and Ed25519 host keys in the selected environment
+  ansible.builtin.assert:
+    that:
+      - (groups['k3s_cluster'] | map('extract', hostvars, 'ansible_machine_id') | list | unique | length) == (groups['k3s_cluster'] | length)
+      - (groups['k3s_cluster'] | map('extract', hostvars, 'ansible_ssh_host_key_ed25519_public') | list | unique | length) == (groups['k3s_cluster'] | length)
+    fail_msg: Identity uniqueness check failed after repair.
+  run_once: true

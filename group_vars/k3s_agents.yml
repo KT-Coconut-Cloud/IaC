@@ -1,0 +1,4 @@
+---
+ansible_python_interpreter: /usr/bin/python3.9
+k3s_service_name: k3s-agent
+k3s_node_role: agent

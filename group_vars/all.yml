@@ -1,0 +1,46 @@
+---
+ansible_python_interpreter: /usr/bin/python3.9
+python_bootstrap_version: "3.9.25"
+python_bootstrap_interpreter: /usr/bin/python3.9
+python_bootstrap_packages:
+  - python3
+  - python39
+node_timezone: Asia/Seoul
+os_baseline_packages:
+  - bash-completion
+  - chrony
+  - conntrack-tools
+  - curl
+  - iproute
+  - iptables
+  - policycoreutils-python-utils
+  - socat
+  - tar
+os_baseline_modules:
+  - overlay
+  - br_netfilter
+os_baseline_sysctls:
+  net.ipv4.ip_forward: "1"
+  net.bridge.bridge-nf-call-iptables: "1"
+os_baseline_disable_swap: true
+os_baseline_disable_firewalld: true
+os_baseline_selinux_mode: enforcing
+k3s_version: "v1.37.2+k3s1"
+k3s_version_confirmed: false
+k3s_pod_cidr: 10.42.0.0/16
+k3s_service_cidr: 10.43.0.0/16
+k3s_install_script_url: https://get.k3s.io
+k3s_install_script_path: /usr/local/src/k3s-install.sh
+k3s_install_script_sha256: ""
+k3s_network_smoke_image: busybox:1.36.1
+k3s_verify_network_smoke_tests: true
+controller_ansible_private_key: /home/admin/.ssh/id_ed25519_ansible
+controller_ansible_public_key: /home/admin/.ssh/id_ed25519_ansible.pub
+controller_venv_path: /home/admin/dev312
+controller_ansible_version: "2.21.6"
+controller_ssh_config_path: /home/admin/.ssh/config
+controller_ssh_config_dir: /home/admin/.ssh/config.d
+controller_ssh_managed_config: /home/admin/.ssh/config.d/ansible-k3s.conf
+controller_ssh_known_hosts_path: /home/admin/.ssh/known_hosts
+ssh_access_target_user: "{{ ansible_user | default('root') }}"
+node_identity_regenerate_duplicates: true

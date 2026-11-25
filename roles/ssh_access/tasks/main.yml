@@ -1,0 +1,29 @@
+---
+- name: Require existing controller key files before SSH key distribution
+  ansible.builtin.assert:
+    that:
+      - controller_ansible_private_key is file
+      - controller_ansible_public_key is file
+    fail_msg: The existing controller key pair is required; key generation is deliberately not automated.
+
+- name: Install the existing controller public key for the connected login account
+  ansible.posix.authorized_key:
+    user: "{{ ssh_access_target_user }}"
+    key: "{{ lookup('file', controller_ansible_public_key) }}"
+    state: present
+    manage_dir: true
+    exclusive: false
+  no_log: true
+
+- name: Switch this run to the existing dedicated Ansible private key
+  ansible.builtin.set_fact:
+    ansible_ssh_private_key_file: "{{ controller_ansible_private_key }}"
+
+- name: Reopen SSH using the dedicated key and strict host checking
+  ansible.builtin.meta: reset_connection
+
+- name: Verify passwordless access with the dedicated key
+  ansible.builtin.wait_for_connection:
+    connect_timeout: 10
+    sleep: 3
+    timeout: 90

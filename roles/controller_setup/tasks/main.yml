@@ -1,0 +1,145 @@
+---
+- name: Require the existing controller virtual environment and key pair
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - { path: "{{ controller_venv_path }}/bin/python" }
+    - { path: "{{ controller_ansible_private_key }}" }
+    - { path: "{{ controller_ansible_public_key }}" }
+  register: controller_setup_required_files
+
+- name: Fail rather than create or replace controller credentials
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Required existing controller file is missing: {{ item.item.path }}"
+  loop: "{{ controller_setup_required_files.results }}"
+
+- name: Verify Ansible is running from the existing dev312 environment
+  ansible.builtin.assert:
+    that:
+      - ansible_playbook_python is search(controller_venv_path)
+    fail_msg: Run Ansible from the existing /home/admin/dev312 environment.
+
+- name: Check the existing Ansible version
+  ansible.builtin.command:
+    argv: [ansible-playbook, --version]
+  register: controller_setup_ansible_version
+  changed_when: false
+
+- name: Require the recorded controller Ansible version
+  ansible.builtin.assert:
+    that:
+      - controller_setup_ansible_version.stdout is search('core ' ~ controller_ansible_version)
+    fail_msg: "Expected ansible-core {{ controller_ansible_version }} from the existing controller environment."
+
+- name: Check for the pinned ansible.posix collection
+  ansible.builtin.command:
+    argv: [ansible-galaxy, collection, list, ansible.posix]
+  register: controller_setup_posix_collection
+  changed_when: false
+  failed_when: false
+
+- name: Install the pinned controller-side collection when missing
+  ansible.builtin.command:
+    argv:
+      - ansible-galaxy
+      - collection
+      - install
+      - -r
+      - "{{ role_path }}/../../collections/requirements.yml"
+  when: controller_setup_posix_collection.stdout is not search('ansible.posix\s+2.2.2')
+
+- name: Validate the existing public key without exposing key material
+  ansible.builtin.command:
+    argv: [ssh-keygen, -lf, "{{ controller_ansible_public_key }}"]
+  register: controller_setup_public_key_check
+  changed_when: false
+  no_log: true
+
+- name: Ensure the existing SSH directory has private permissions
+  ansible.builtin.file:
+    path: "{{ controller_ssh_config_path | dirname }}"
+    state: directory
+    owner: "{{ lookup('env', 'USER') }}"
+    mode: "0700"
+
+- name: Set safe permissions on the existing private key without replacing it
+  ansible.builtin.file:
+    path: "{{ controller_ansible_private_key }}"
+    mode: "0600"
+
+- name: Require verified host fingerprints before first-use trust
+  ansible.builtin.assert:
+    that:
+      - controller_ssh_hosts | length > 0
+      - item.expected_fingerprint is match('^SHA256:[A-Za-z0-9+/=]+$')
+      - "'REQUIRED_' not in item.expected_fingerprint"
+      - "'SET_' not in item.hostname"
+      - "'SET_' not in item.user"
+    fail_msg: "Supply the address, login user, and console-verified SHA256 fingerprint for {{ item.alias }}."
+  loop: "{{ controller_ssh_hosts }}"
+
+- name: Scan only the Ed25519 host key for fingerprint comparison
+  ansible.builtin.command:
+    argv: [ssh-keyscan, -T, "5", -p, "22", -t, ed25519, "{{ item.hostname }}"]
+  loop: "{{ controller_ssh_hosts }}"
+  register: controller_setup_scans
+  changed_when: false
+  failed_when: false
+
+- name: Calculate scanned host key fingerprints
+  ansible.builtin.command:
+    argv: [ssh-keygen, -lf, /dev/stdin]
+    stdin: "{{ item.stdout }}"
+  loop: "{{ controller_setup_scans.results }}"
+  register: controller_setup_fingerprints
+  changed_when: false
+  failed_when: false
+
+- name: Reject missing or unverified host keys
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout is search(controller_ssh_hosts[ansible_loop.index0].expected_fingerprint)
+    fail_msg: "Host key fingerprint verification failed for {{ controller_ssh_hosts[ansible_loop.index0].alias }}."
+  loop: "{{ controller_setup_fingerprints.results }}"
+  loop_control:
+    extended: true
+
+- name: Add host keys only after the fingerprint match
+  ansible.builtin.known_hosts:
+    path: "{{ controller_ssh_known_hosts_path }}"
+    name: "{{ item.item.alias }},{{ item.item.hostname }}"
+    key: "{{ item.item.alias }},{{ item.item.hostname }} {{ item.stdout_lines[0].split()[1] }} {{ item.stdout_lines[0].split()[2] }}"
+    hash_host: true
+    state: present
+  loop: "{{ controller_setup_scans.results }}"
+  loop_control:
+    label: "{{ item.item.alias }}"
+
+- name: Create a dedicated SSH config include directory
+  ansible.builtin.file:
+    path: "{{ controller_ssh_config_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Write only the Ansible-managed SSH config fragment
+  ansible.builtin.template:
+    src: ansible-k3s.conf.j2
+    dest: "{{ controller_ssh_managed_config }}"
+    owner: "{{ lookup('env', 'USER') }}"
+    mode: "0600"
+    backup: true
+
+- name: Preserve existing SSH config and add a managed Include block
+  ansible.builtin.blockinfile:
+    path: "{{ controller_ssh_config_path }}"
+    create: true
+    owner: "{{ lookup('env', 'USER') }}"
+    mode: "0600"
+    marker: "# {mark} ANSIBLE K3S INCLUDE"
+    insertbefore: BOF
+    block: "Include {{ controller_ssh_managed_config }}"
+    backup: true

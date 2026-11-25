@@ -1,0 +1,31 @@
+---
+- name: Install K3s server on KT Cloud m1 only
+  hosts: k3s_servers
+  gather_facts: true
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require KT Cloud m1 and confirmed pinned release
+      ansible.builtin.assert:
+        that:
+          - target_environment == 'ktcloud'
+          - groups['k3s_servers'] | sort == ['m1']
+          - groups['k3s_cluster'] | sort == ['m1', 'w1', 'w2']
+          - inventory_hostname == 'm1'
+          - k3s_version_confirmed | bool
+        fail_msg: Refusing server install outside KT Cloud m1 or before version confirmation.
+    - name: Load encrypted cluster credentials
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/vault.yml"
+      no_log: true
+    - name: Require the encrypted KT Cloud server token
+      ansible.builtin.assert:
+        that:
+          - vault_k3s_tokens.ktcloud is defined
+          - vault_k3s_tokens.ktcloud | length >= 32
+          - "'REPLACE_' not in vault_k3s_tokens.ktcloud"
+        fail_msg: Set a long random KT Cloud K3s token in the encrypted vault.
+      no_log: true
+  roles:
+    - k3s_server

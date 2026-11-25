@@ -1,0 +1,16 @@
+---
+- name: Verify the KT Cloud K3s cluster from its server
+  hosts: k3s_servers
+  gather_facts: true
+  become: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require KT Cloud m1 and all three inventory nodes
+      ansible.builtin.assert:
+        that:
+          - target_environment == 'ktcloud'
+          - groups['k3s_servers'] | sort == ['m1']
+          - groups['k3s_cluster'] | sort == ['m1', 'w1', 'w2']
+          - inventory_hostname == 'm1'
+  roles:
+    - cluster_verify

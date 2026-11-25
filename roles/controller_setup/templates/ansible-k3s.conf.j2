@@ -1,0 +1,8 @@
+{% for host in controller_ssh_hosts %}
+Host {{ host.alias }}
+    HostName {{ host.hostname }}
+    User {{ host.user }}
+    IdentityFile {{ host.identity_file }}
+    IdentitiesOnly yes
+    StrictHostKeyChecking yes
+{% endfor %}

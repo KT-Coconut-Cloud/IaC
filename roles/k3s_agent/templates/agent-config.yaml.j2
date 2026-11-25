@@ -1,0 +1,6 @@
+# Ansible-managed K3s configuration
+# Secret values are supplied by Ansible Vault.
+server: "{{ k3s_server_url }}"
+token: "{{ vault_k3s_tokens[target_environment] }}"
+node-name: "{{ node_hostname }}"
+node-ip: "{{ ansible_host }}"

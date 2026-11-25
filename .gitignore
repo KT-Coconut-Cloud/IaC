@@ -1,0 +1,27 @@
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+**/kubeconfig
+**/kubeconfig.*
+**/*kubeconfig*
+**/*token*
+**/*secret*
+**/vault.yml
+**/vault.yaml
+**/.vault_pass*
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.pem
+
+# Ansible and editor artifacts
+*.retry
+__pycache__/
+.vscode/
+.idea/
+
+# Environment-specific values
+inventory/ktcloud/private.yml
+

@@ -1,0 +1,8 @@
+---
+- ansible.builtin.import_playbook: controller_setup.yml
+- ansible.builtin.import_playbook: os_bootstrap.yml
+- ansible.builtin.import_playbook: node_identity.yml
+- ansible.builtin.import_playbook: os_baseline.yml
+- ansible.builtin.import_playbook: k3s_server.yml
+- ansible.builtin.import_playbook: k3s_agent.yml
+- ansible.builtin.import_playbook: cluster_verify_ktcloud.yml

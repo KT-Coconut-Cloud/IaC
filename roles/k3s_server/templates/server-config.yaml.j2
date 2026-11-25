@@ -1,0 +1,8 @@
+# Ansible-managed K3s configuration
+# Secret values are supplied by Ansible Vault.
+token: "{{ vault_k3s_tokens.ktcloud }}"
+node-name: "{{ node_hostname }}"
+node-ip: "{{ ansible_host }}"
+write-kubeconfig-mode: "0600"
+cluster-cidr: "{{ k3s_pod_cidr }}"
+service-cidr: "{{ k3s_service_cidr }}"

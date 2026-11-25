@@ -1,0 +1,18 @@
+---
+- name: Bootstrap Python and authorized Ansible access on approved nodes
+  hosts: k3s_cluster
+  gather_facts: false
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Refuse an inventory outside the exact environment allowlist
+      ansible.builtin.assert:
+        that:
+          - target_environment in ['vmware', 'ktcloud']
+          - groups['k3s_cluster'] | sort == target_inventory_hosts | sort
+          - inventory_hostname in target_inventory_hosts
+        fail_msg: Refusing bootstrap because the selected inventory differs from its allowlist.
+  roles:
+    - python_bootstrap
+    - ssh_access

@@ -1,0 +1,19 @@
+---
+- name: Apply the common baseline to the approved Rocky Linux 8.10 nodes
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Refuse OS changes unless inventory, host address, and OS match exactly
+      ansible.builtin.assert:
+        that:
+          - groups['k3s_cluster'] | sort == target_inventory_hosts | sort
+          - inventory_hostname in target_inventory_hosts
+          - ansible_host == os_baseline_expected_hosts[inventory_hostname]
+          - ansible_facts.distribution == 'Rocky'
+          - ansible_facts.distribution_version == '8.10'
+        fail_msg: Refusing baseline changes because the host or OS is outside the approved Rocky Linux 8.10 inventory.
+  roles:
+    - os_baseline

@@ -1,0 +1,19 @@
+# Installed system-wide. Do not fail interactive shells where optional tools are absent.
+case "$-" in
+  *i*) ;;
+  *) return ;;
+esac
+
+if [ -r /etc/profile.d/bash_completion.sh ]; then
+  . /etc/profile.d/bash_completion.sh
+elif [ -r /usr/share/bash-completion/bash_completion ]; then
+  . /usr/share/bash-completion/bash_completion
+fi
+
+if command -v kubectl >/dev/null 2>&1; then
+  source <(kubectl completion bash)
+fi
+
+if command -v helm >/dev/null 2>&1; then
+  . <(helm completion bash)
+fi
