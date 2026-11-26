@@ -27,7 +27,7 @@ The controller setup playbook checks the existing venv and key pair, enforces pr
 ## Required values before a future run
 
 1. Fill KT Cloud private IPs and the image's initial SSH login user in inventory/ktcloud/hosts.ini and bootstrap.ini. In bootstrap.ini, point to the existing initial access key without putting that key in this repository.
-2. Fill SHA256 Ed25519 SSH host-key fingerprints in each environment's group_vars/all.yml after checking them through a trusted VMware or EC2 console. Do not trust an unverified ssh-keyscan result.
+2. Fill SHA256 Ed25519 SSH host-key fingerprints in each inventory's `group_vars/all.yml` after checking them through a trusted VMware or EC2 console. VMware values remain in `inventory/vmware/group_vars/all.yml`; shared controller and cluster defaults are in `playbooks/group_vars/all.yml`. Do not trust an unverified ssh-keyscan result.
 3. Set k3s_version_confirmed to true only after confirming that the release is available and that the VMware server's existing version is compatible. The current version value is a proposed pin, not a live-verified release.
 4. Create an encrypted group_vars/vault.yml with the existing VMware join token and the new KT Cloud cluster token. Keep the vault password outside Git.
 5. Set VMWARE_KUBECONFIG to the existing protected VMware kubeconfig path for VMware verification. Install/locate kubectl in the existing controller environment.
@@ -48,7 +48,7 @@ Run from the existing controller virtual environment after reviewing all externa
     ansible-playbook -i inventory/ktcloud/hosts.ini playbooks/k3s_agent.yml --ask-vault-pass
     ansible-playbook -i inventory/ktcloud/hosts.ini playbooks/cluster_verify_ktcloud.yml
 
-For VMware, set VMWARE_KUBECONFIG and supply the vaulted existing VMware join token before agent installation:
+Run commands from the repository root so `ansible.cfg` relative paths resolve consistently. For VMware, set VMWARE_KUBECONFIG and supply the vaulted existing VMware join token before agent installation:
 
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/controller_setup.yml
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/os_bootstrap.yml
@@ -57,7 +57,7 @@ For VMware, set VMWARE_KUBECONFIG and supply the vaulted existing VMware join to
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/k3s_agent.yml --ask-vault-pass
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/cluster_verify_vmware.yml
 
-The combined vmware.yml and ktcloud.yml entry points run these stages in order for nodes that already accept the dedicated key. A fresh KT Cloud deployment must use the staged bootstrap flow first, because its initial connection uses the image-provided login key. Staged commands are recommended for review between changes. Both paths change node state. Do not run until all placeholders, tokens, host fingerprints, release confirmation, and network prerequisites have been reviewed.
+The shared `group_vars/all.yml`, `group_vars/k3s_agents.yml`, and `group_vars/k3s_servers.yml` are stored under `playbooks/group_vars/`, where Ansible's `host_group_vars` plugin discovers them for playbooks in this directory. Environment-specific values stay under each inventory's `group_vars/` and remain separate. The encrypted vault remains at repository-root `group_vars/vault.yml` and is loaded explicitly by the server and agent plays. The combined vmware.yml and ktcloud.yml entry points run these stages in order for nodes that already accept the dedicated key. A fresh KT Cloud deployment must use the staged bootstrap flow first, because its initial connection uses the image-provided login key. Staged commands are recommended for review between changes. Both paths change node state. Do not run until all placeholders, tokens, host fingerprints, release confirmation, and network prerequisites have been reviewed.
 
 The optional reboot recovery playbook reboots one node at a time and requires the explicit extra variable reboot_recovery_authorized=true. Use it only after a separate maintenance approval:
 
@@ -68,9 +68,13 @@ The optional reboot recovery playbook reboots one node at a time and requires th
 On the controller, install the pinned collection and parse the inventories before any execution:
 
     ansible-galaxy collection install -r collections/requirements.yml
-    ansible-inventory -i inventory/vmware/hosts.ini --graph
-    ansible-inventory -i inventory/ktcloud/bootstrap.ini --graph
-    ansible-inventory -i inventory/ktcloud/hosts.ini --graph
+    ansible-inventory -i inventory/vmware/hosts.ini --playbook-dir playbooks --graph
+    ansible-inventory -i inventory/ktcloud/bootstrap.ini --playbook-dir playbooks --graph
+    ansible-inventory -i inventory/ktcloud/hosts.ini --playbook-dir playbooks --graph
+
+For `ansible-inventory`, pass `--playbook-dir playbooks` so the shared group variables beside the playbooks are loaded too. To inspect only the non-secret values needed for the VMware worker run:
+
+    ansible-inventory -i inventory/vmware/hosts.ini --playbook-dir playbooks --host w1 | python3 -c 'import json,sys; d=json.load(sys.stdin); keys=("controller_venv_path","target_environment","k3s_service_name","k3s_node_role","k3s_server_url"); print(json.dumps({k:d.get(k) for k in keys}, indent=2))'
 
 Then run syntax checks for each playbook using the matching inventory. For example:
 
