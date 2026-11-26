@@ -1,8 +1,9 @@
 ---
-- name: Inspect and repair duplicated identities in the selected cluster inventory
+- name: Inspect and repair duplicated identities among selected workers
   hosts: k3s_cluster
   gather_facts: true
   become: true
+  serial: 1
   any_errors_fatal: true
   pre_tasks:
     - name: Refuse an inventory outside the exact allowlist
@@ -10,5 +11,14 @@
         that:
           - groups['k3s_cluster'] | sort == target_inventory_hosts | sort
           - inventory_hostname in target_inventory_hosts
+    - name: Gather read-only identity facts from every approved worker
+      ansible.builtin.setup:
+        gather_subset:
+          - min
+          - ssh_host_pub_keys
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ ansible_play_hosts_all | sort }}"
+      run_once: true
   roles:
     - node_identity

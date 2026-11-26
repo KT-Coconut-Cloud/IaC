@@ -22,12 +22,12 @@ The latest project instruction disables and stops firewalld on managed workers a
 
 First review this directory against the existing /home/admin/ansible-k3s project. Do not copy over that project or overwrite its files. The intended controller already has Rocky Linux 9.8, the /home/admin/dev312 virtual environment, ansible-core 2.21.6, and the existing key pair at /home/admin/.ssh/id_ed25519_ansible. Keep those credentials outside this repository.
 
-The controller setup playbook checks the existing venv and key pair, enforces private-key permissions, verifies SSH host fingerprints against values supplied from trusted consoles, and adds a dedicated SSH config include while preserving existing config. It may install the pinned ansible.posix collection if missing. Review the task before running it on the controller.
+The controller setup playbook checks the existing venv and key pair, enforces private-key permissions, and adds a dedicated SSH config include while preserving existing config. SSH trust uses `accept-new` only for this repository's Ansible connections: the first key is recorded automatically, while a changed known key is still rejected. It may install the pinned ansible.posix collection if missing.
 
 ## Required values before a future run
 
 1. Fill KT Cloud private IPs and the image's initial SSH login user in inventory/ktcloud/hosts.ini and bootstrap.ini. In bootstrap.ini, point to the existing initial access key without putting that key in this repository.
-2. Fill SHA256 Ed25519 SSH host-key fingerprints in each inventory's `group_vars/all.yml` after checking them through a trusted VMware or EC2 console. VMware values remain in `inventory/vmware/group_vars/all.yml`; shared controller and cluster defaults are in `playbooks/group_vars/all.yml`. Do not trust an unverified ssh-keyscan result.
+2. Fill the target addresses and login users in each inventory. SSH first-use trust is configured only for this repository; an existing changed host key still fails closed.
 3. Set k3s_version_confirmed to true only after confirming that the release is available and that the VMware server's existing version is compatible. The current version value is a proposed pin, not a live-verified release.
 4. Create an encrypted group_vars/vault.yml with the existing VMware join token and the new KT Cloud cluster token. Keep the vault password outside Git.
 5. Set VMWARE_KUBECONFIG to the existing protected VMware kubeconfig path for VMware verification. Install/locate kubectl in the existing controller environment.
@@ -48,7 +48,7 @@ Run from the existing controller virtual environment after reviewing all externa
     ansible-playbook -i inventory/ktcloud/hosts.ini playbooks/k3s_agent.yml --ask-vault-pass
     ansible-playbook -i inventory/ktcloud/hosts.ini playbooks/cluster_verify_ktcloud.yml
 
-Run commands from the repository root so `ansible.cfg` relative paths resolve consistently. For VMware, set VMWARE_KUBECONFIG and supply the vaulted existing VMware join token before agent installation:
+Run commands from the repository root so `ansible.cfg` relative paths resolve consistently. VMware Agent installation needs the vaulted existing VMware join token and reachable m1 API; kubeconfig is only needed for the separate post-install verification:
 
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/controller_setup.yml
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/os_bootstrap.yml
@@ -57,11 +57,20 @@ Run commands from the repository root so `ansible.cfg` relative paths resolve co
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/k3s_agent.yml --ask-vault-pass
     ansible-playbook -i inventory/vmware/hosts.ini playbooks/cluster_verify_vmware.yml
 
-The shared `group_vars/all.yml`, `group_vars/k3s_agents.yml`, and `group_vars/k3s_servers.yml` are stored under `playbooks/group_vars/`, where Ansible's `host_group_vars` plugin discovers them for playbooks in this directory. Environment-specific values stay under each inventory's `group_vars/` and remain separate. The encrypted vault remains at repository-root `group_vars/vault.yml` and is loaded explicitly by the server and agent plays. The combined vmware.yml and ktcloud.yml entry points run these stages in order for nodes that already accept the dedicated key. A fresh KT Cloud deployment must use the staged bootstrap flow first, because its initial connection uses the image-provided login key. Staged commands are recommended for review between changes. Both paths change node state. Do not run until all placeholders, tokens, host fingerprints, release confirmation, and network prerequisites have been reviewed.
+The shared `group_vars/all.yml`, `group_vars/k3s_agents.yml`, and `group_vars/k3s_servers.yml` are stored under `playbooks/group_vars/`, where Ansible's `host_group_vars` plugin discovers them for playbooks in this directory. Environment-specific values stay under each inventory's `group_vars/` and remain separate. The encrypted vault remains at repository-root `group_vars/vault.yml` and is loaded explicitly by the server and agent plays. `vmware.yml` runs controller setup, bootstrap, identity, baseline, and agent installation; cluster verification is a separate required step. With `--limit w1` or `--limit w2`, identity collection only contacts selected workers. A batch run targets both. `ktcloud.yml` retains its integrated flow. A fresh KT Cloud deployment must use the staged bootstrap flow first, because its initial connection uses the image-provided login key.
 
 The optional reboot recovery playbook reboots one node at a time and requires the explicit extra variable reboot_recovery_authorized=true. Use it only after a separate maintenance approval:
 
     ansible-playbook -i inventory/ktcloud/hosts.ini playbooks/reboot_verify.yml -e reboot_recovery_authorized=true
+
+### VMware w1-only staged execution
+
+Run from the repository root in the existing controller virtual environment. `--limit w1` restricts all remote play targets to w1; identity facts are compared among selected hosts only. The pre-install check requires the existing K3s API to be reachable from the worker. Then run the separate controller-side cluster verification after configuring kubeconfig. It reads Kubernetes state, and network smoke resources are disabled by default. Agent join and cluster reads use the existing m1 API endpoint without managing m1 over SSH or changing its OS, K3s configuration, or workloads.
+
+    ansible-playbook -i inventory/vmware/hosts.ini playbooks/vmware.yml --limit w1 --ask-vault-pass
+    VMWARE_KUBECONFIG=/protected/path/to/kubeconfig ansible-playbook -i inventory/vmware/hosts.ini playbooks/cluster_verify_vmware.yml
+
+K3s agent installation does not require a kubeconfig. The separate verification command does. Network smoke tests remain disabled by default. Failed joins may leave local agent files or a Kubernetes Node object; removal is a separate recovery operation.
 
 ## Local validation
 
@@ -82,6 +91,6 @@ Then run syntax checks for each playbook using the matching inventory. For examp
     ansible-playbook -i inventory/ktcloud/bootstrap.ini playbooks/os_bootstrap.yml --syntax-check
     ansible-playbook -i inventory/ktcloud/hosts.ini playbooks/ktcloud.yml --syntax-check
 
-These checks do not contact or modify managed nodes. The KT Cloud inventory must contain real host addresses/users before it can be used for connection checks; required SHA256 fingerprints and the encrypted vault file must be supplied before a run. The Python smoke verifier can be syntax parsed with Python 3 on the controller. Local preparation on this Windows workstation could not run Ansible or Python syntax parsers because those tools are not installed here.
+These checks do not contact or modify managed nodes. On `k3s-hq`, run Ansible from `/home/admin/IaC` with the existing `/home/admin/dev312` environment. The VMware inventory variable probe and `playbooks/vmware.yml --syntax-check` have been verified in that environment; shared variables such as `controller_venv_path` load from `playbooks/group_vars/` for playbook runs. When using `ansible-inventory`, pass `--playbook-dir playbooks` to load those same variables. The VMware worker playbooks have not been run. Read-only SSH checks found both worker addresses reporting `localhost.localdomain` and `k3s-agent` inactive, while `VMWARE_KUBECONFIG` was unavailable and the inventory still requires console-verified host fingerprints. Confirm worker identities and cluster state before any mutating run. The KT Cloud inventory still contains placeholders and requires real addresses, login users, verified host fingerprints, and the encrypted vault before use.
 
 Changes should be reviewed locally and then committed/pushed manually by the repository owner. Never commit secret files.

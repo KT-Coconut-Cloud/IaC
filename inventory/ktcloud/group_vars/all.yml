@@ -22,14 +22,11 @@ controller_ssh_hosts:
     hostname: SET_KTCLOUD_M1_PRIVATE_IP
     user: SET_EC2_LOGIN_USER
     identity_file: /home/admin/.ssh/id_ed25519_ansible
-    expected_fingerprint: REQUIRED_VERIFY_FROM_EC2_CONSOLE
   - alias: kt-w1
     hostname: SET_KTCLOUD_W1_PRIVATE_IP
     user: SET_EC2_LOGIN_USER
     identity_file: /home/admin/.ssh/id_ed25519_ansible
-    expected_fingerprint: REQUIRED_VERIFY_FROM_EC2_CONSOLE
   - alias: kt-w2
     hostname: SET_KTCLOUD_W2_PRIVATE_IP
     user: SET_EC2_LOGIN_USER
     identity_file: /home/admin/.ssh/id_ed25519_ansible
-    expected_fingerprint: REQUIRED_VERIFY_FROM_EC2_CONSOLE

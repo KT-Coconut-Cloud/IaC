@@ -1,6 +1,6 @@
 ---
-# Copy to group_vars/vault.yml, replace values, then encrypt with ansible-vault.
-# group_vars/vault.yml is gitignored.
+# Keep group_vars/vault.yml encrypted with ansible-vault; never commit plaintext
+# tokens or the vault password.
 vault_k3s_tokens:
   vmware: REPLACE_WITH_EXISTING_VMWARE_SERVER_TOKEN
   ktcloud: REPLACE_WITH_LONG_RANDOM_KT_CLOUD_SERVER_TOKEN

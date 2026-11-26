@@ -27,5 +27,13 @@
           - "'REPLACE_' not in vault_k3s_tokens[target_environment]"
         fail_msg: Set the environment token in the encrypted vault.
       no_log: true
+    - name: Require the existing K3s API to be reachable from this worker
+      ansible.builtin.wait_for:
+        host: "{{ k3s_api_host }}"
+        port: 6443
+        state: started
+        connect_timeout: 3
+        timeout: 10
+      changed_when: false
   roles:
     - k3s_agent

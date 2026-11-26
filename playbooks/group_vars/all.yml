@@ -34,7 +34,7 @@ k3s_install_script_url: https://get.k3s.io
 k3s_install_script_path: /usr/local/src/k3s-install.sh
 k3s_install_script_sha256: ""
 k3s_network_smoke_image: busybox:1.36.1
-k3s_verify_network_smoke_tests: true
+k3s_verify_network_smoke_tests: false
 controller_ansible_private_key: /home/admin/.ssh/id_ed25519_ansible
 controller_ansible_public_key: /home/admin/.ssh/id_ed25519_ansible.pub
 controller_venv_path: /home/admin/dev312

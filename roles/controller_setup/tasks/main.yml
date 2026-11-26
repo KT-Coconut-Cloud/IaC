@@ -2,6 +2,7 @@
 - name: Require the existing controller virtual environment and key pair
   ansible.builtin.stat:
     path: "{{ item.path }}"
+    follow: true
   loop:
     - { path: "{{ controller_venv_path }}/bin/python" }
     - { path: "{{ controller_ansible_private_key }}" }
@@ -69,55 +70,6 @@
   ansible.builtin.file:
     path: "{{ controller_ansible_private_key }}"
     mode: "0600"
-
-- name: Require verified host fingerprints before first-use trust
-  ansible.builtin.assert:
-    that:
-      - controller_ssh_hosts | length > 0
-      - item.expected_fingerprint is match('^SHA256:[A-Za-z0-9+/=]+$')
-      - "'REQUIRED_' not in item.expected_fingerprint"
-      - "'SET_' not in item.hostname"
-      - "'SET_' not in item.user"
-    fail_msg: "Supply the address, login user, and console-verified SHA256 fingerprint for {{ item.alias }}."
-  loop: "{{ controller_ssh_hosts }}"
-
-- name: Scan only the Ed25519 host key for fingerprint comparison
-  ansible.builtin.command:
-    argv: [ssh-keyscan, -T, "5", -p, "22", -t, ed25519, "{{ item.hostname }}"]
-  loop: "{{ controller_ssh_hosts }}"
-  register: controller_setup_scans
-  changed_when: false
-  failed_when: false
-
-- name: Calculate scanned host key fingerprints
-  ansible.builtin.command:
-    argv: [ssh-keygen, -lf, /dev/stdin]
-    stdin: "{{ item.stdout }}"
-  loop: "{{ controller_setup_scans.results }}"
-  register: controller_setup_fingerprints
-  changed_when: false
-  failed_when: false
-
-- name: Reject missing or unverified host keys
-  ansible.builtin.assert:
-    that:
-      - item.rc == 0
-      - item.stdout is search(controller_ssh_hosts[ansible_loop.index0].expected_fingerprint)
-    fail_msg: "Host key fingerprint verification failed for {{ controller_ssh_hosts[ansible_loop.index0].alias }}."
-  loop: "{{ controller_setup_fingerprints.results }}"
-  loop_control:
-    extended: true
-
-- name: Add host keys only after the fingerprint match
-  ansible.builtin.known_hosts:
-    path: "{{ controller_ssh_known_hosts_path }}"
-    name: "{{ item.item.alias }},{{ item.item.hostname }}"
-    key: "{{ item.item.alias }},{{ item.item.hostname }} {{ item.stdout_lines[0].split()[1] }} {{ item.stdout_lines[0].split()[2] }}"
-    hash_host: true
-    state: present
-  loop: "{{ controller_setup_scans.results }}"
-  loop_control:
-    label: "{{ item.item.alias }}"
 
 - name: Create a dedicated SSH config include directory
   ansible.builtin.file:

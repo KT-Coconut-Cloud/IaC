@@ -137,7 +137,10 @@
 
 - name: Read active swap devices before applying the permanent no-swap policy
   ansible.builtin.command:
-    argv: [swapon, --show, --noheadings, --output=NAME]
+    argv:
+      - awk
+      - 'NR > 1 { print $1 }'
+      - /proc/swaps
   register: os_baseline_active_swap
   changed_when: false
   when: os_baseline_disable_swap | bool
@@ -165,7 +168,10 @@
 
 - name: Read active swap devices after applying the no-swap policy
   ansible.builtin.command:
-    argv: [swapon, --show, --noheadings, --output=NAME]
+    argv:
+      - awk
+      - 'NR > 1 { print $1 }'
+      - /proc/swaps
   register: os_baseline_swap_after
   changed_when: false
   when: os_baseline_disable_swap | bool

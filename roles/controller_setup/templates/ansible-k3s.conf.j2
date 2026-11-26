@@ -4,5 +4,5 @@ Host {{ host.alias }}
     User {{ host.user }}
     IdentityFile {{ host.identity_file }}
     IdentitiesOnly yes
-    StrictHostKeyChecking yes
+    StrictHostKeyChecking accept-new
 {% endfor %}

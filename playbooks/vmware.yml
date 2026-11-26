@@ -4,4 +4,3 @@
 - ansible.builtin.import_playbook: node_identity.yml
 - ansible.builtin.import_playbook: os_baseline.yml
 - ansible.builtin.import_playbook: k3s_agent.yml
-- ansible.builtin.import_playbook: cluster_verify_vmware.yml

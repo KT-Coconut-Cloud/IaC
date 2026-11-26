@@ -20,10 +20,8 @@ controller_ssh_hosts:
     hostname: 10.121.0.161
     user: root
     identity_file: /home/admin/.ssh/id_ed25519_ansible
-    expected_fingerprint: REQUIRED_VERIFY_FROM_VM_CONSOLE
   - alias: w2
     hostname: 10.121.0.162
     user: root
     identity_file: /home/admin/.ssh/id_ed25519_ansible
-    expected_fingerprint: REQUIRED_VERIFY_FROM_VM_CONSOLE
 vmware_kubeconfig_path: "{{ lookup('env', 'VMWARE_KUBECONFIG') }}"

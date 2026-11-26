@@ -5,12 +5,12 @@
   register: node_identity_machine_id_before
   changed_when: false
 
-- name: Calculate machine identifiers for every host in this environment
+- name: Calculate machine identifiers for every selected worker
   ansible.builtin.set_fact:
     node_identity_peer_machine_ids: >-
-      {{ groups['k3s_cluster'] | map('extract', hostvars, 'ansible_machine_id') | list }}
+      {{ ansible_play_hosts_all | map('extract', hostvars, 'ansible_machine_id') | list }}
     node_identity_machine_id_duplicate: >-
-      {{ (groups['k3s_cluster'] | map('extract', hostvars, 'ansible_machine_id') | select('equalto', ansible_machine_id) | list | length) > 1 }}
+      {{ (ansible_play_hosts_all | map('extract', hostvars, 'ansible_machine_id') | select('equalto', ansible_machine_id) | list | length) > 1 }}
 
 - name: Refuse duplicate machine IDs if automatic repair was disabled
   ansible.builtin.assert:
@@ -40,7 +40,7 @@
   vars:
     node_identity_current_host_key: "{{ vars['ansible_ssh_host_key_' ~ item ~ '_public'] | default('') }}"
     node_identity_peer_host_keys: >-
-      {{ groups['k3s_cluster'] | difference([inventory_hostname]) |
+      {{ ansible_play_hosts_all | difference([inventory_hostname]) |
          map('extract', hostvars, 'ansible_ssh_host_key_' ~ item ~ '_public') |
          select('defined') | list }}
   loop: [ed25519, ecdsa, rsa]
@@ -144,10 +144,10 @@
       - selinux
       - ssh_host_pub_keys
 
-- name: Require unique machine IDs and Ed25519 host keys in the selected environment
+- name: Require unique machine IDs and Ed25519 host keys among selected workers
   ansible.builtin.assert:
     that:
-      - (groups['k3s_cluster'] | map('extract', hostvars, 'ansible_machine_id') | list | unique | length) == (groups['k3s_cluster'] | length)
-      - (groups['k3s_cluster'] | map('extract', hostvars, 'ansible_ssh_host_key_ed25519_public') | list | unique | length) == (groups['k3s_cluster'] | length)
+      - (ansible_play_hosts_all | map('extract', hostvars, 'ansible_machine_id') | list | unique | length) == (ansible_play_hosts_all | length)
+      - (ansible_play_hosts_all | map('extract', hostvars, 'ansible_ssh_host_key_ed25519_public') | list | unique | length) == (ansible_play_hosts_all | length)
     fail_msg: Identity uniqueness check failed after repair.
   run_once: true
