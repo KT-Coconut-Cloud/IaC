@@ -9,6 +9,13 @@
     fail_msg: Confirm the server endpoint, pinned release, and encrypted token before joining agents.
   no_log: true
 
+- name: Require expected host mapping
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in os_baseline_expected_hosts
+      - ansible_host == os_baseline_expected_hosts[inventory_hostname]
+    fail_msg: "Agent host does not match the declared environment inventory."
+
 - name: Detect an existing K3s binary
   ansible.builtin.stat:
     path: /usr/local/bin/k3s
@@ -25,7 +32,7 @@
 - name: Refuse to replace an unapproved existing K3s version
   ansible.builtin.assert:
     that:
-      - not k3s_agent_binary.stat.exists or k3s_agent_installed_version.stdout is search(k3s_version)
+      - not k3s_agent_binary.stat.exists or k3s_version in k3s_agent_installed_version.stdout
     fail_msg: Existing K3s version differs from the pinned release; review it instead of upgrading automatically.
   when: k3s_agent_binary.stat.exists
 
@@ -72,7 +79,7 @@
   ansible.builtin.assert:
     that:
       - k3s_install_script_url is match('^https://')
-  fail_msg: K3s installer must be fetched over HTTPS.
+    fail_msg: K3s installer must be fetched over HTTPS.
 
 - name: Download the K3s installer from the declared official endpoint
   ansible.builtin.get_url:

@@ -7,8 +7,6 @@
 **/*kubeconfig*
 **/*token*
 **/*secret*
-**/vault.yml
-**/vault.yaml
 **/.vault_pass*
 id_rsa
 id_rsa.*

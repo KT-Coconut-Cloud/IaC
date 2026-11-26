@@ -6,6 +6,7 @@ python_bootstrap_packages:
   - python3
   - python39
 node_timezone: Asia/Seoul
+os_baseline_require_chrony_sync: false
 os_baseline_packages:
   - bash-completion
   - chrony
@@ -26,7 +27,7 @@ os_baseline_disable_swap: true
 os_baseline_disable_firewalld: true
 os_baseline_selinux_mode: enforcing
 k3s_version: "v1.37.2+k3s1"
-k3s_version_confirmed: false
+k3s_version_confirmed: true
 k3s_pod_cidr: 10.42.0.0/16
 k3s_service_cidr: 10.43.0.0/16
 k3s_install_script_url: https://get.k3s.io

@@ -14,11 +14,17 @@
       - ansible_selinux.status | default('unknown') | lower == 'enabled'
     fail_msg: SELinux is disabled; refusing an automatic relabel/reboot operation.
 
-- name: Persist the Enforcing policy without changing SELinux policy type
+- name: Require the declared SELinux policy to be Enforcing
+  ansible.builtin.assert:
+    that:
+      - os_baseline_selinux_mode | lower == 'enforcing'
+    fail_msg: "K3s nodes must use SELinux Enforcing mode."
+
+- name: Persist the declared SELinux policy without changing SELinux policy type
   ansible.builtin.lineinfile:
     path: /etc/selinux/config
     regexp: '^SELINUX='
-    line: SELINUX=enforcing
+    line: "SELINUX={{ os_baseline_selinux_mode }}"
     backup: true
 
 - name: Set runtime SELinux to Enforcing when currently permissive
@@ -30,14 +36,14 @@
 - name: Verify runtime SELinux mode
   ansible.builtin.command:
     argv: [getenforce]
-  register: os_baseline_selinux_mode
+  register: os_baseline_selinux_runtime_check
   changed_when: false
 
-- name: Require runtime SELinux Enforcing
+- name: Require runtime SELinux policy
   ansible.builtin.assert:
     that:
-      - os_baseline_selinux_mode.stdout | trim | lower == 'enforcing'
-    fail_msg: SELinux did not enter Enforcing mode.
+      - os_baseline_selinux_runtime_check.stdout | trim | lower == os_baseline_selinux_mode | lower
+    fail_msg: "SELinux did not enter the declared policy mode."
 
 - name: Set the environment-specific hostname persistently
   ansible.builtin.hostname:
@@ -67,7 +73,7 @@
   when: os_baseline_current_timezone.stdout | trim != node_timezone
   changed_when: true
 
-- name: Wait until chrony reports synchronized time
+- name: Wait until chrony reports synchronized time when required
   ansible.builtin.command:
     argv: [chronyc, tracking]
   register: os_baseline_chrony_tracking
@@ -75,6 +81,7 @@
   retries: 12
   delay: 5
   until: os_baseline_chrony_tracking.stdout is search('Leap status\s*:\s*Normal')
+  when: os_baseline_require_chrony_sync | bool
 
 - name: Gather service facts before applying the requested firewalld policy
   ansible.builtin.service_facts:
@@ -89,7 +96,7 @@
     - "'firewalld.service' in ansible_facts.services"
 
 - name: Load required K3s kernel modules now
-  ansible.builtin.modprobe:
+  community.general.modprobe:
     name: "{{ item }}"
     state: present
   loop: "{{ os_baseline_modules }}"
@@ -133,22 +140,6 @@
     argv: [swapon, --show, --noheadings, --output=NAME]
   register: os_baseline_active_swap
   changed_when: false
-  failed_when: false
-
-- name: Read active systemd swap units
-  ansible.builtin.command:
-    argv: [systemctl, list-units, --type=swap, --state=active, --no-legend, --no-pager]
-  register: os_baseline_active_swap_units
-  changed_when: false
-  failed_when: false
-
-- name: Stop and mask active systemd swap units
-  ansible.builtin.systemd_service:
-    name: "{{ item.split()[0] }}"
-    state: stopped
-    enabled: false
-    masked: true
-  loop: "{{ os_baseline_active_swap_units.stdout_lines | default([]) }}"
   when: os_baseline_disable_swap | bool
 
 - name: Disable current swap without deleting backing files or partitions
@@ -167,22 +158,37 @@
     backup: true
   when: os_baseline_disable_swap | bool
 
-- name: Reload systemd after swap unit and fstab changes
+- name: Reload systemd after fstab changes
   ansible.builtin.systemd_service:
     daemon_reload: true
   when: os_baseline_disable_swap | bool
 
-- name: Require no swap to remain active
+- name: Read active swap devices after applying the no-swap policy
   ansible.builtin.command:
     argv: [swapon, --show, --noheadings, --output=NAME]
   register: os_baseline_swap_after
   changed_when: false
   when: os_baseline_disable_swap | bool
 
-- name: Verify the no-swap policy
+- name: Read active systemd swap units after applying the no-swap policy
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - list-units
+      - --type=swap
+      - --state=active
+      - --no-legend
+      - --no-pager
+  register: os_baseline_active_swap_units_after
+  changed_when: false
+  when: os_baseline_disable_swap | bool
+
+- name: Verify the permanent no-swap policy
   ansible.builtin.assert:
     that:
       - os_baseline_swap_after.stdout | trim | length == 0
+      - os_baseline_active_swap_units_after.stdout | trim | length == 0
+    fail_msg: "Swap devices or active systemd swap units remain enabled."
   when: os_baseline_disable_swap | bool
 
 - name: Install login-time Bash completion with runtime availability checks
